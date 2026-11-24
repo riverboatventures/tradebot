@@ -40,10 +40,11 @@ risk:                       # TITAN's hard limits. AI agents cannot override the
   hype_risk_size_cut: 0.5   # LUNA reports high hype risk -> size multiplied by this
 
   # Prop / funded account rules. TITAN always applies the STRICTER of these and the limits above.
-  # Apex 50K Intraday Trail evaluation (on Tradovate), from the Apex account rules card.
+  # PLACEHOLDER: these numbers are from an Apex 50K card. Switching to Tradeify (Apex prohibits bots);
+  # replace every value below with your Tradeify account's rules before demo/live.
   prop:
     enabled: true
-    firm: apex
+    firm: tradeify
     starting_balance: 50000.0
     trailing_drawdown: 2000.0      # Max Drawdown: $ below peak equity at which the account fails
     trailing_type: intraday        # Intraday Trail: follows highest equity incl. open P&L
