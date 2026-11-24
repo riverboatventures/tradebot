@@ -50,7 +50,15 @@ class Titan:
             floor = min(floor, p.starting_balance + p.trail_lock_offset)
         return floor
 
+    def contract_weight(self, symbol: str) -> float:
+        """How much one contract counts toward the firm's cap (in mini-equivalents)."""
+        return self.r.prop.micro_weight if get_instrument(symbol).micro else 1.0
+
     def trading_halted(self, acct: AccountState) -> str | None:
+        p = self.r.prop
+        if (p.enabled and p.stop_at_profit_target and p.profit_target and p.starting_balance
+                and acct.equity >= p.starting_balance + p.profit_target):
+            return f"Profit target reached (${p.profit_target:,.0f}): evaluation passed, no new trades"
         if self.daily_risk_remaining(acct) <= 0:
             return f"Daily loss limit hit (${self.daily_loss_limit(acct):,.0f})"
         if self.drawdown_room(acct) <= 0:
@@ -122,8 +130,9 @@ class Titan:
         max_qty = int(budget // per_contract)
         max_qty = min(max_qty, self.r.max_contracts_per_trade)
         if self.r.prop.enabled and self.r.prop.max_contracts:
-            open_contracts = sum(abs(pos.quantity) for pos in acct.positions)
-            max_qty = min(max_qty, self.r.prop.max_contracts - open_contracts)
+            used = sum(abs(pos.quantity) * self.contract_weight(pos.symbol) for pos in acct.positions)
+            room = self.r.prop.max_contracts - used
+            max_qty = min(max_qty, int(room / self.contract_weight(p.symbol) + 1e-9))
         if max_qty < 1:
             return reject(f"1 contract risks ${per_contract:,.2f}, more than the {budget_name} budget ${budget:,.2f}")
 

@@ -44,7 +44,13 @@ class PropCfg(BaseModel):
     # Line stops trailing once it reaches starting_balance + this (Apex: +$100). null = never locks.
     trail_lock_offset: float | None = None
     daily_loss_limit: float | None = None
-    max_contracts: int | None = None
+    # Contract cap in MINI-equivalents. Apex 50K: 6 minis = 60 micros, so a micro weighs 0.1.
+    max_contracts: float | None = None
+    micro_weight: float = 0.1
+    # Evaluation profit target ($ above starting_balance). With stop_at_profit_target, TITAN
+    # stops opening trades once it's reached: the eval is passed, no reason to risk giving it back.
+    profit_target: float | None = None
+    stop_at_profit_target: bool = True
     drawdown_buffer: float = 0.0
 
 

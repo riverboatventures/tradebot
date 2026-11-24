@@ -25,6 +25,8 @@ If Claude is unavailable or declines a request, the AI-powered agents fall back 
 
 - 1% of equity max risk per trade (stop distance + 1 tick slippage)
 - Daily loss limit: the **stricter** of 20% and the prop firm's daily limit ($1,000 default)
+- Prop contract cap in mini-equivalents (Apex 50K: 6 minis = 60 micros) and an eval profit target
+  that stops trading once reached
 - Prop trailing drawdown (Apex-style): intraday trailing on the highest equity including open P&L
   (or `eod` trailing on end-of-day balances), locking at starting balance + $100. TITAN stops trading
   `drawdown_buffer` dollars *before* the firm's line

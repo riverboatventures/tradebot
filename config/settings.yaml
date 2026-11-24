@@ -40,17 +40,19 @@ risk:                       # TITAN's hard limits. AI agents cannot override the
   hype_risk_size_cut: 0.5   # LUNA reports high hype risk -> size multiplied by this
 
   # Prop / funded account rules. TITAN always applies the STRICTER of these and the limits above.
-  # Defaults below are an Apex 50k-style account. CHECK THEM AGAINST YOUR APEX DASHBOARD:
-  # firm rules change, and TITAN can only protect the numbers you give it.
+  # Apex 50K Intraday Trail evaluation (on Tradovate), from the Apex account rules card.
   prop:
     enabled: true
     firm: apex
     starting_balance: 50000.0
-    trailing_drawdown: 2500.0      # $ below peak equity at which the account fails
-    trailing_type: intraday        # intraday = trails highest equity incl. open P&L; eod = end-of-day balance
-    trail_lock_offset: 100.0       # drawdown line stops trailing at starting_balance + $100
-    daily_loss_limit: 1000.0       # TITAN's own daily stop in $ (stricter than 20% of the account)
-    max_contracts: 10              # contract cap (each micro counts as 1 here, which is conservative)
+    trailing_drawdown: 2000.0      # Max Drawdown: $ below peak equity at which the account fails
+    trailing_type: intraday        # Intraday Trail: follows highest equity incl. open P&L
+    trail_lock_offset: 100.0       # ASSUMED: line stops trailing at $50,100. Confirm with Apex.
+    daily_loss_limit: 1000.0       # TITAN's own daily stop (Apex doesn't list one for this account)
+    max_contracts: 6               # 6 minis / 60 micros, counted in mini-equivalents
+    micro_weight: 0.1
+    profit_target: 3000.0          # eval passes at $53,000
+    stop_at_profit_target: true    # stop trading (and flatten) once the target is hit
     drawdown_buffer: 250.0         # TITAN stops trading this many $ BEFORE the firm's line
 
 data:

@@ -142,3 +142,38 @@ def test_load_ninjatrader_export(tmp_path):
     f.write_text("20261124 143000;6000.25;6001;5999.5;6000.75;1234\n")
     (b,) = load_csv(f)
     assert b.ts.hour == 14 and b.close == 6000.75 and b.volume == 1234
+
+
+@pytest.fixture
+def apex50(settings):
+    p = settings.risk.prop
+    p.starting_balance, p.trailing_drawdown, p.trail_lock_offset = 50000, 2000, 100
+    p.max_contracts, p.micro_weight, p.profit_target = 6, 0.1, 3000
+    settings.risk.max_contracts_per_trade = 100
+    settings.risk.risk_per_trade_pct = 100  # isolate the contract cap
+    return settings
+
+
+def test_apex_micro_cap_is_60(apex50, midday):
+    acct = AccountState(equity=50000, start_of_day_equity=50000, peak_equity=50000)
+    apex50.risk.prop.daily_loss_limit = None
+    apex50.risk.prop.trailing_drawdown = 10**9
+    d = Titan(apex50).review(proposal(quantity=500), acct, None, None, midday)
+    assert d.proposal.quantity == 60
+    # 25 MNQ open = 2.5 minis used -> 35 micros left
+    acct.positions = [Position(symbol="MNQ", quantity=-25, avg_price=21000)]
+    d = Titan(apex50).review(proposal(quantity=500), acct, None, None, midday)
+    assert d.proposal.quantity == 35
+
+
+def test_apex_profit_target_stops_trading(apex50, midday):
+    acct = AccountState(equity=53000, start_of_day_equity=52500, peak_equity=53000)
+    assert "Profit target" in Titan(apex50).trading_halted(acct)
+    acct.equity = 52900
+    assert Titan(apex50).trading_halted(acct) is None
+
+
+def test_apex_2000_drawdown_floor(apex50):
+    t = Titan(apex50)
+    assert t.drawdown_floor(AccountState(equity=50000, start_of_day_equity=50000, peak_equity=50000)) == 48000
+    assert t.drawdown_floor(AccountState(equity=52500, start_of_day_equity=52500, peak_equity=52500)) == 50100
