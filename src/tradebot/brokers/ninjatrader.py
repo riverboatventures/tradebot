@@ -31,9 +31,12 @@ STALE_AFTER_S = 30
 class NinjaTraderBroker(Broker):
     name = "ninjatrader"
 
-    def __init__(self, live: bool, live_armed: bool, account: str, nt_folder: str, contracts: dict[str, str]):
+    def __init__(self, live: bool, live_armed: bool, account: str, nt_folder: str, contracts: dict[str, str],
+                 bot_only: bool = True):
         super().__init__(live=live, live_armed=live_armed)
         self.account = account
+        self.name = f"ninjatrader:{account}"
+        self.bot_only = bot_only
         self.root = Path(nt_folder)
         self.incoming = self.root / "incoming"
         self.outgoing = self.root / "outgoing"

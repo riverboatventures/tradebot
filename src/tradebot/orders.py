@@ -145,7 +145,12 @@ class OrderTracker:
             if sym in tracked or qty == 0:
                 self.untracked_seen.pop(sym, None)
                 continue
-            first = datetime.fromisoformat(self.untracked_seen.setdefault(sym, now.isoformat()))
+            if sym not in self.untracked_seen:
+                self.untracked_seen[sym] = now.isoformat()
+                if not self.flatten_untracked:
+                    self.alert("warning", f"[{self.broker.name}] {sym} position {qty} was not opened by the bot; "
+                                          "leaving it alone (bot_only: false)")
+            first = datetime.fromisoformat(self.untracked_seen[sym])
             if self.flatten_untracked and now - first > UNTRACKED_GRACE:
                 self._close(None, sym, "position not opened by this bot (or its record was lost)")
                 self.untracked_seen.pop(sym, None)

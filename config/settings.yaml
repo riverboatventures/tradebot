@@ -40,10 +40,10 @@ risk:                       # TITAN's hard limits. AI agents cannot override the
   hype_risk_size_cut: 0.5   # LUNA reports high hype risk -> size multiplied by this
 
   # Prop / funded account rules. TITAN always applies the STRICTER of these and the limits above.
-  # Tradeify 10K (Tradovate), from the evaluation and funded rules cards.
-  # VERIFY in writing that Tradeify allows fully automated trading before running on it.
+  # ON HOLD: Tradeify 10K rules, kept for later. Disabled while trading Sim101 + the live NinjaTrader account.
+  # VERIFY in writing that Tradeify allows fully automated trading before re-enabling.
   prop:
-    enabled: true
+    enabled: false
     firm: tradeify
     starting_balance: 10000.0
     trailing_drawdown: 500.0       # Static Drawdown $500: account fails at $9,500
@@ -80,12 +80,17 @@ brokers:
     account_spec: ""        # Tradovate account name, e.g. "DEMO123456"
   ninjatrader:
     enabled: true
-    # NinjaTrader account name: Sim101 for practice; for Tradeify, the account name exactly as it
-    # appears in NinjaTrader's Accounts tab after connecting to Tradovate.
-    account: Sim101
-    # Folder NinjaTrader watches for order instruction files (ATI must be enabled in NinjaTrader)
+    # Each account is traded independently with its own TITAN limits (sized off its own balance).
+    # mode: demo -> only live: false accounts.  mode: live -> all accounts (needs TRADEBOT_LIVE_ARMED).
+    accounts:
+      - name: Sim101
+        live: false
+        bot_only: true
+      - name: YOUR-LIVE-ACCOUNT    # exactly as shown in NinjaTrader's Accounts tab
+        live: true
+        bot_only: true             # true = bot closes any position it didn't open. Set false if you
+                                   # also trade this account by hand.
     nt_folder: "C:/Users/YOU/Documents/NinjaTrader 8"
-    starting_equity: 50000.0
     # NinjaTrader needs the explicit contract month. Update on roll dates.
     contracts:
       MES: "12-26"

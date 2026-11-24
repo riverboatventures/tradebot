@@ -48,10 +48,11 @@ class Pipeline:
         prop = settings.risk.prop
         self.desks = []
         for b in brokers:
-            key = f"{b.name}_{'live' if b.live else 'sim'}"
+            key = f"{b.name.replace(':', '_')}_{'live' if b.live else 'sim'}"
             acct = AccountTracker(key, state_dir, trailing_type=prop.trailing_type,
                                   starting_balance=prop.starting_balance if prop.enabled else None)
-            orders = OrderTracker(b, Path(state_dir) / f"orders_{key}.json", alert=self._alert)
+            orders = OrderTracker(b, Path(state_dir) / f"orders_{key}.json", alert=self._alert,
+                                  flatten_untracked=getattr(b, "bot_only", True))
             self.desks.append(Desk(b, acct, orders))
 
     def _alert(self, level: str, msg: str) -> None:

@@ -110,3 +110,29 @@ def test_tracker_state_survives_restart(nt, tmp_path):
     tr, b = place(nt, tmp_path, [])
     tr2 = OrderTracker(nt, tmp_path / "orders.json")
     assert [x.entry_id for x in tr2.active] == [b.entry_id]
+
+
+def test_mode_selects_accounts(monkeypatch, tmp_path):
+    from tradebot.cli import build_brokers
+    from tradebot.config import Settings
+    s = Settings.model_validate({"mode": "demo", "brokers": {"ninjatrader": {
+        "enabled": True, "nt_folder": str(tmp_path), "accounts": [
+            {"name": "Sim101"}, {"name": "LIVE1", "live": True, "bot_only": False}]}}})
+    assert [b.name for b in build_brokers(s)] == ["ninjatrader:Sim101"]
+    s.mode = "live"
+    monkeypatch.delenv("TRADEBOT_LIVE_ARMED", raising=False)
+    with pytest.raises(SystemExit):
+        build_brokers(s)  # live without arming refuses to start
+    monkeypatch.setenv("TRADEBOT_LIVE_ARMED", "yes-real-money")
+    brokers = build_brokers(s)
+    assert [(b.name, b.live, b.bot_only) for b in brokers] == [
+        ("ninjatrader:Sim101", False, True), ("ninjatrader:LIVE1", True, False)]
+
+
+def test_not_bot_only_alerts_instead_of_closing(nt, tmp_path):
+    alerts = []
+    tr = OrderTracker(nt, tmp_path / "o.json", alert=lambda lvl, m: alerts.append(m), flatten_untracked=False)
+    pos = [Position(symbol="MES", quantity=1, avg_price=6000)]
+    tr.reconcile(pos, T0)
+    tr.reconcile(pos, T0 + timedelta(minutes=5))
+    assert oifs(nt) == [] and len(alerts) == 1

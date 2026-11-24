@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import logging
 import sys
 import time
@@ -17,11 +18,11 @@ from .pipeline import KILL_FILE, Pipeline
 log = logging.getLogger("tradebot")
 
 
-def build_brokers(s: Settings) -> list[Broker]:
+def build_brokers(s: Settings, require_armed: bool = True) -> list[Broker]:
     if s.mode == "paper":
         return [PaperBroker(s.paper.starting_equity)]
     live = s.mode == "live"
-    if live and not s.live_armed:
+    if live and require_armed and not s.live_armed:
         sys.exit("mode is 'live' but TRADEBOT_LIVE_ARMED is not set to 'yes-real-money'. Refusing to start.")
     brokers: list[Broker] = []
     if s.brokers.tradovate.enabled:
@@ -30,7 +31,14 @@ def build_brokers(s: Settings) -> list[Broker]:
     if s.brokers.ninjatrader.enabled:
         from .brokers.ninjatrader import NinjaTraderBroker
         nt = s.brokers.ninjatrader
-        brokers.append(NinjaTraderBroker(live, s.live_armed, nt.account, nt.nt_folder, nt.contracts))
+        for acct in nt.accounts:
+            if acct.live and live and acct.name.startswith("YOUR-"):
+                sys.exit("Set brokers.ninjatrader.accounts[].name to your real live account name first.")
+            if acct.live and not live:
+                log.info("Skipping live account %s (mode is %s)", acct.name, s.mode)
+                continue
+            brokers.append(NinjaTraderBroker(acct.live, s.live_armed, acct.name, nt.nt_folder, nt.contracts,
+                                             bot_only=acct.bot_only))
     if not brokers:
         sys.exit(f"mode is {s.mode!r} but no broker is enabled under brokers: in settings.yaml")
     return brokers
@@ -65,8 +73,13 @@ def build_pipeline(s: Settings) -> Pipeline:
 
 def warn_about_settings(s: Settings) -> None:
     if s.risk.daily_loss_limit_pct > 5:
-        log.warning("daily_loss_limit_pct is %.0f%%. TITAN will use the stricter prop daily limit if set.",
-                    s.risk.daily_loss_limit_pct)
+        if s.risk.prop.enabled and s.risk.prop.daily_loss_limit:
+            log.warning("daily_loss_limit_pct is %.0f%%; the stricter prop daily limit ($%.0f) applies.",
+                        s.risk.daily_loss_limit_pct, s.risk.prop.daily_loss_limit)
+        else:
+            log.warning("daily_loss_limit_pct is %.0f%% and no prop limit is set: the bot may lose up to "
+                        "%.0f%% of each account in one day before stopping.",
+                        s.risk.daily_loss_limit_pct, s.risk.daily_loss_limit_pct)
     if s.mode == "live":
         log.warning("LIVE MODE: real-money orders will be placed automatically.")
 
@@ -137,11 +150,12 @@ def _main(argv: list[str] | None = None) -> None:
                 print(f"  {t['symbol']:4} {t['qty']:+d} @ {t['entry']} -> {t['exit']} ({t['reason']}) ${t['pnl']:,.2f}")
         return
     if a.cmd == "check-broker":
+        # Read-only: builds every account (live ones too) but never places orders.
         getattr(s.brokers, a.name).enabled = True
-        if s.mode == "paper":
-            s.mode = "demo"
-        for b in build_brokers(s):
-            if b.name == a.name:
+        s.mode = "live"
+        os.environ.pop("TRADEBOT_LIVE_ARMED", None)  # guarantees no live order can go out from here
+        for b in build_brokers(s, require_armed=False):
+            if b.name.startswith(a.name):
                 b.connect()
                 eq, pos = b.snapshot()
                 print(f"{b.name} ({'LIVE' if b.live else 'demo/sim'}): equity ${eq:,.2f}, positions {pos}")

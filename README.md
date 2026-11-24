@@ -73,7 +73,9 @@ files). Setup:
 1. NinjaTrader → Tools → Options → Automated trading interface → enable **AT Interface**.
 2. Copy `ninjatrader/TradebotBridge.cs` to `Documents\NinjaTrader 8\bin\Custom\AddOns\`, open the
    NinjaScript Editor, and press F5. It publishes account balances for TITAN.
-3. Set `brokers.ninjatrader.nt_folder`, `account`, and contract months (update on roll dates).
+3. Set `brokers.ninjatrader.nt_folder`, the `accounts` list (Sim101 and/or your live account, each
+   marked `live: true/false`), and contract months (update on roll dates).
+   `mode: demo` trades only non-live accounts; `mode: live` trades all of them (needs `TRADEBOT_LIVE_ARMED`).
 4. `tradebot check-broker ninjatrader`.
 
 ## Backtesting
@@ -111,5 +113,7 @@ The bot refuses demo/live on synthetic (fake) prices.
 Round 3: backtester; TITAN now counts risk on open positions against the daily and drawdown limits.
 
 Round 4: Tradeify 10K rules (static drawdown), NinjaTrader routing for prop accounts, live order tracking.
+
+Current setup: Sim101 + a live NinjaTrader account; Tradeify rules kept but disabled (`prop.enabled: false`).
 
 Not yet built: Telegram alerts (postponed), commissions in TITAN's sizing.

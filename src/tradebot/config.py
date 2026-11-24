@@ -82,9 +82,17 @@ class TradovateCfg(BaseModel):
     account_spec: str = ""
 
 
+class NinjaTraderAccountCfg(BaseModel):
+    name: str                 # exactly as shown in NinjaTrader's Accounts tab
+    live: bool = False        # True = real money: traded only in mode: live, with TRADEBOT_LIVE_ARMED set
+    # True: the bot owns this account and closes any position it didn't open.
+    # False: positions the bot didn't open are left alone (only alerted).
+    bot_only: bool = True
+
+
 class NinjaTraderCfg(BaseModel):
     enabled: bool = False
-    account: str = "Sim101"
+    accounts: list[NinjaTraderAccountCfg] = Field(default_factory=lambda: [NinjaTraderAccountCfg(name="Sim101")])
     nt_folder: str = ""
     starting_equity: float = 50000.0
     contracts: dict[str, str] = Field(default_factory=dict)
