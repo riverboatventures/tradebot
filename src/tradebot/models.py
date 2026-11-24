@@ -146,5 +146,7 @@ class AccountState(BaseModel):
 class OrderResult(BaseModel):
     ok: bool
     broker: str
-    order_id: str | None = None
+    order_id: str | None = None   # entry order
+    stop_id: str | None = None
+    target_id: str | None = None
     message: str = ""

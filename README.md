@@ -46,6 +46,10 @@ Peak equity and start-of-day equity are saved to `logs/`, so restarting the bot 
 - **Kill switch:** `tradebot kill` creates a `KILL` file, flattens all positions and blocks new trades.
   `tradebot resume` removes it.
 - If a broker's account balance can't be read, that account skips the cycle (fail closed).
+- **Order tracking** (`orders.py`): every order is verified after placement and on every cycle.
+  Rejected or unconfirmed entries get their exits cancelled; a position whose stop isn't working
+  at the broker is closed; leftover exit orders are cancelled once a position closes; positions
+  larger than ordered or not opened by the bot are closed. Records persist across restarts.
 - Every agent output and decision is journaled to `logs/journal_YYYY-MM-DD.jsonl`.
 
 ## Quick start
@@ -106,4 +110,6 @@ The bot refuses demo/live on synthetic (fake) prices.
 
 Round 3: backtester; TITAN now counts risk on open positions against the daily and drawdown limits.
 
-Not yet built: Telegram alerts, reconciliation of NinjaTrader order fills, commissions in TITAN's sizing.
+Round 4: Tradeify 10K rules (static drawdown), NinjaTrader routing for prop accounts, live order tracking.
+
+Not yet built: Telegram alerts (postponed), commissions in TITAN's sizing.

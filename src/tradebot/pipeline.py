@@ -14,7 +14,8 @@ from .instruments import get as get_instrument
 from .data import DataError, MarketData, NewsFeed, SentimentFeed
 from .journal import Journal
 from .llm import LLM
-from .models import AccountState
+from .models import AccountState, Position
+from .orders import OrderTracker
 
 log = logging.getLogger("desk")
 
@@ -25,6 +26,7 @@ KILL_FILE = Path("KILL")
 class Desk:
     broker: Broker
     tracker: AccountTracker
+    orders: OrderTracker
     halted: str | None = None
     last_state: AccountState | None = field(default=None)
 
@@ -44,10 +46,17 @@ class Pipeline:
         self.nova = Nova(settings, llm)
         self.journal = journal or Journal(state_dir)
         prop = settings.risk.prop
-        self.desks = [Desk(b, AccountTracker(f"{b.name}_{'live' if b.live else 'sim'}", state_dir,
-                                             trailing_type=prop.trailing_type,
-                                             starting_balance=prop.starting_balance if prop.enabled else None))
-                      for b in brokers]
+        self.desks = []
+        for b in brokers:
+            key = f"{b.name}_{'live' if b.live else 'sim'}"
+            acct = AccountTracker(key, state_dir, trailing_type=prop.trailing_type,
+                                  starting_balance=prop.starting_balance if prop.enabled else None)
+            orders = OrderTracker(b, Path(state_dir) / f"orders_{key}.json", alert=self._alert)
+            self.desks.append(Desk(b, acct, orders))
+
+    def _alert(self, level: str, msg: str) -> None:
+        (log.critical if level == "critical" else log.warning)(msg)
+        self.journal.write("orders", level, {"message": msg})
 
     def _flatten(self, desk: Desk, why: str) -> None:
         log.warning("[%s] FLATTEN: %s", desk.broker.name, why)
@@ -78,6 +87,17 @@ class Pipeline:
                     except (DataError, IndexError) as e:
                         log.warning("paper mark for %s unavailable: %s", sym, e)
 
+        # Read every account and reconcile orders first, so a missing stop or a stray order is
+        # handled even when the bot is otherwise halted or outside trading hours.
+        snaps: dict[int, tuple[float, list[Position]]] = {}
+        for d in self.desks:
+            try:
+                eq, pos = d.broker.snapshot()
+                d.orders.reconcile(pos, now)
+                snaps[id(d)] = (eq, pos)
+            except BrokerError as e:
+                log.error("[%s] can't read account, skipping this cycle: %s", d.broker.name, e)
+
         if KILL_FILE.exists():
             for d in self.desks:
                 if d.halted != "kill switch":  # flatten once per kill
@@ -88,11 +108,9 @@ class Pipeline:
         # Account gates
         active: list[tuple[Desk, AccountState]] = []
         for d in self.desks:
-            try:
-                eq, pos = d.broker.snapshot()
-            except BrokerError as e:
-                log.error("[%s] can't read account, skipping this cycle: %s", d.broker.name, e)
+            if id(d) not in snaps:
                 continue
+            eq, pos = snaps[id(d)]
             acct = d.tracker.update(eq, pos, now.date(), self._equity_high(eq, pos))
             d.last_state = acct
             if now.time() >= self.s.session.flatten_at:
@@ -133,6 +151,8 @@ class Pipeline:
                 continue
 
             for d, acct in active:
+                if any(b.symbol == draft.symbol for b in d.orders.active):
+                    continue  # an order for this market is still being confirmed
                 risk = self.titan.review(draft, acct, news, mood, now)
                 self.journal.write("TITAN", "review", risk, broker=d.broker.name)
                 decision = self.nova.decide(risk, chart, news, mood)
@@ -147,6 +167,8 @@ class Pipeline:
                     continue
                 self.journal.write("broker", "order", result, broker=d.broker.name)
                 if result.ok:
+                    bracket = d.orders.track(decision.plan, result, now)
+                    d.orders.verify_new(bracket, timeout_s=0 if isinstance(d.broker, PaperBroker) else 10)
                     # refresh so the next symbol is sized against current positions and open risk
                     eq, pos = d.broker.snapshot()
                     if not any(p.symbol == decision.plan.symbol for p in pos):

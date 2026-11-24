@@ -88,8 +88,38 @@ class NinjaTraderBroker(Broker):
             f"PLACE;{self.account};{inst};{exit_};{q};STOPMARKET;0;{plan.stop};DAY;{oco};{oco}S;;",
             f"PLACE;{self.account};{inst};{exit_};{q};LIMIT;{plan.target};0;DAY;{oco};{oco}T;;",
         ])
-        return OrderResult(ok=True, broker=self.name, order_id=f"{oco}E",
-                           message="OIF submitted; confirm fill in outgoing/ order state files")
+        return OrderResult(ok=True, broker=self.name, order_id=f"{oco}E", stop_id=f"{oco}S", target_id=f"{oco}T",
+                           message="OIF submitted; fill and stop are verified by the order tracker")
+
+    # NinjaTrader writes outgoing/<ORDER ID>.txt containing "<STATE>;<FILLED QTY>;<AVG PRICE>".
+    WORKING = {"ACCEPTED", "WORKING", "TRIGGERPENDING", "SUBMITTED", "CHANGEPENDING", "CHANGESUBMITTED",
+               "INITIALIZED"}
+
+    def order_state(self, order_id: str) -> tuple[str, int]:
+        candidates = [self.outgoing / f"{order_id}.txt", *self.outgoing.glob(f"*_{order_id}.txt")]
+        for f in candidates:
+            if f.exists():
+                parts = f.read_text().strip().split(";")
+                filled = int(float(parts[1])) if len(parts) > 1 and parts[1] else 0
+                return parts[0].strip().upper().replace(" ", ""), filled
+        return "", 0
+
+    def bracket_status(self, bracket):
+        from ..orders import BracketStatus
+        entry_state, _ = self.order_state(bracket.entry_id)
+        entry = {"FILLED": "filled", "REJECTED": "rejected", "CANCELLED": "cancelled",
+                 "CANCELED": "cancelled", "": "unknown"}.get(entry_state, "pending")
+        stop_state, _ = self.order_state(bracket.stop_id or "")
+        target_state, _ = self.order_state(bracket.target_id or "")
+        return BracketStatus(entry=entry, stop_working=stop_state in self.WORKING,
+                             target_working=target_state in self.WORKING)
+
+    def cancel_order(self, order_id: str) -> None:
+        # CANCEL;;;;;;;;;;<ORDER ID>;;
+        self._write_oif([f"CANCEL;;;;;;;;;;{order_id};;"])
+
+    def close_position(self, symbol: str) -> None:
+        self._write_oif([f"CLOSEPOSITION;{self.account};{self.nt_instrument(symbol)};DAY"])
 
     def flatten_all(self) -> None:
         # CLOSEPOSITION cancels working orders and closes the position for THIS account only.

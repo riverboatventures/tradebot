@@ -1,10 +1,15 @@
-"""Common broker interface. Every connector implements the same four calls."""
+"""Common broker interface. Every connector implements the same calls."""
 from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
 
+from typing import TYPE_CHECKING
+
 from ..models import OrderResult, Position, TradeProposal
+
+if TYPE_CHECKING:
+    from ..orders import BracketStatus
 
 log = logging.getLogger("broker")
 
@@ -38,6 +43,18 @@ class Broker(ABC):
     @abstractmethod
     def flatten_all(self) -> None:
         """Cancel all working orders and close all positions."""
+
+    # -- order tracking (see tradebot/orders.py) --------------------------------
+    @abstractmethod
+    def bracket_status(self, bracket) -> "BracketStatus":
+        """Entry state and whether the stop/target are working at the broker."""
+
+    @abstractmethod
+    def cancel_order(self, order_id: str) -> None: ...
+
+    @abstractmethod
+    def close_position(self, symbol: str) -> None:
+        """Close one position and cancel its working orders."""
 
     def place_bracket(self, plan: TradeProposal) -> OrderResult:
         """Market entry with an attached stop-loss and profit target (OCO)."""

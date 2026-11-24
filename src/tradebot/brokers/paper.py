@@ -38,7 +38,8 @@ class PaperBroker(Broker):
         self.brackets[plan.symbol] = {"qty": qty, "entry": plan.entry, "stop": plan.stop, "target": plan.target}
         self.marks[plan.symbol] = plan.entry
         self.cash -= self.commission * plan.quantity
-        return OrderResult(ok=True, broker=self.name, order_id=f"P{next(self._ids)}")
+        n = next(self._ids)
+        return OrderResult(ok=True, broker=self.name, order_id=f"P{n}E", stop_id=f"P{n}S", target_id=f"P{n}T")
 
     def _close(self, sym: str, price: float, reason: str) -> None:
         b = self.brackets.pop(sym)
@@ -60,6 +61,18 @@ class PaperBroker(Broker):
             self._close(sym, b["stop"], "stop")
         elif (long and bar.high >= b["target"]) or (not long and bar.low <= b["target"]):
             self._close(sym, b["target"], "target")
+
+    def bracket_status(self, bracket):
+        from ..orders import BracketStatus
+        live = bracket.symbol in self.brackets
+        return BracketStatus(entry="filled", stop_working=live, target_working=live)
+
+    def cancel_order(self, order_id: str) -> None:
+        pass  # paper exits disappear with the position
+
+    def close_position(self, symbol: str) -> None:
+        if symbol in self.brackets:
+            self._close(symbol, self.marks.get(symbol, self.brackets[symbol]["entry"]), "close")
 
     def flatten_all(self) -> None:
         for sym in list(self.brackets):

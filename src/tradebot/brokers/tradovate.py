@@ -145,7 +145,42 @@ class TradovateBroker(Broker):
         res = self._post("/order/placeOSO", body)
         if res.get("failureReason") or "orderId" not in res:
             return OrderResult(ok=False, broker=self.name, message=str(res))
-        return OrderResult(ok=True, broker=self.name, order_id=str(res["orderId"]))
+        # bracket order ids (field names to be confirmed on the demo server; if absent, the
+        # tracker falls back to looking for any working order on the contract)
+        stop_id, target_id = res.get("oso1Id"), res.get("oso2Id")
+        return OrderResult(ok=True, broker=self.name, order_id=str(res["orderId"]),
+                           stop_id=str(stop_id) if stop_id else None,
+                           target_id=str(target_id) if target_id else None)
+
+    _WORKING = {"Working", "PendingNew", "Suspended", "PendingReplace"}
+
+    def bracket_status(self, bracket):
+        from ..orders import BracketStatus
+        ids = [i for i in (bracket.entry_id, bracket.stop_id, bracket.target_id) if i]
+        orders = {str(o["id"]): o for o in self._get("/order/items", ids=",".join(ids))}
+        es = orders.get(bracket.entry_id, {}).get("ordStatus", "")
+        entry = {"Filled": "filled", "Rejected": "rejected", "Canceled": "cancelled",
+                 "Expired": "cancelled", "": "unknown"}.get(es, "pending")
+        if bracket.stop_id:
+            stop_ok = orders.get(bracket.stop_id, {}).get("ordStatus") in self._WORKING
+            target_ok = orders.get(bracket.target_id or "", {}).get("ordStatus") in self._WORKING
+        else:  # bracket ids unknown: accept any working order on this contract as protection
+            symbol = self.front_month(bracket.symbol)
+            working = [o for o in self._get("/order/list")
+                       if o.get("accountId") == self.account_id and o.get("ordStatus") in self._WORKING
+                       and self._contract_name(o["contractId"]) == symbol]
+            stop_ok = target_ok = bool(working)
+        return BracketStatus(entry=entry, stop_working=stop_ok, target_working=target_ok)
+
+    def cancel_order(self, order_id: str) -> None:
+        self._post("/order/cancelorder", {"orderId": int(order_id), "isAutomated": True})
+
+    def close_position(self, symbol: str) -> None:
+        name = self.front_month(symbol)
+        for p in self._get("/position/list"):
+            if p.get("accountId") == self.account_id and p.get("netPos") and self._contract_name(p["contractId"]) == name:
+                self._post("/order/liquidateposition",
+                           {"accountId": self.account_id, "contractId": p["contractId"], "admin": False})
 
     def flatten_all(self) -> None:
         for o in self._get("/order/list"):
