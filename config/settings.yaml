@@ -1,0 +1,79 @@
+# tradebot settings. Every number TITAN enforces lives here, so it's easy to review.
+
+# paper = simulated fills inside tradebot (no broker needed)
+# demo  = broker's paper/sim account (Tradovate demo server, NinjaTrader Sim101)
+# live  = REAL MONEY. Also requires TRADEBOT_LIVE_ARMED=yes-real-money in the environment.
+mode: paper
+
+timezone: America/New_York
+
+universe:
+  - MES
+  - MNQ
+  - MYM
+  - M2K
+  - CL
+  - MCL
+  - GC
+  - MGC
+
+session:
+  first_entry: "09:35"      # no entries before this (skip the opening auction chaos)
+  last_entry: "15:30"       # no NEW entries after this
+  flatten_at: "15:50"       # everything closed by this time, every day
+  bar_minutes: 5            # VEGA's working timeframe
+  higher_tf_minutes: 15     # VEGA's trend filter timeframe
+  loop_seconds: 60          # how often the pipeline runs
+
+atlas:
+  watchlist_size: 3         # how many symbols get the full VEGA/ORION/LUNA treatment
+
+risk:                       # TITAN's hard limits. AI agents cannot override these.
+  risk_per_trade_pct: 1.0   # max loss if stop is hit, % of account equity
+  daily_loss_limit_pct: 20.0
+  max_trades_per_day: 6
+  max_open_positions: 2
+  max_contracts_per_trade: 5
+  min_reward_risk: 1.5
+  min_stop_ticks: 4
+  allow_full_size: false    # if false, TITAN rejects CL and GC (full-size) and only allows micros
+  hype_risk_size_cut: 0.5   # LUNA reports high hype risk -> size multiplied by this
+
+  # Prop / funded account rules. TITAN always applies the STRICTER of these and the limits above.
+  prop:
+    enabled: true
+    trailing_drawdown: 2500.0      # $ below peak equity at which the account fails
+    daily_loss_limit: 1000.0       # $ firm daily loss limit (null to disable)
+    max_contracts: 10              # firm's contract limit (micros count as 1 each here)
+    drawdown_buffer: 250.0         # TITAN stops trading this many $ BEFORE the firm's limit
+
+nova:
+  min_confidence: 0.6       # NOVA rejects setups below this blended confidence
+
+llm:
+  model: claude-opus-5-5
+  enabled: true             # false = ORION/LUNA/NOVA run rules-only (no API calls)
+
+brokers:
+  tradovate:
+    enabled: false
+    account_spec: ""        # Tradovate account name, e.g. "DEMO123456"
+  ninjatrader:
+    enabled: false
+    account: Sim101         # NinjaTrader account name (Sim101 for sim, your live account name for live)
+    # Folder NinjaTrader watches for order instruction files (ATI must be enabled in NinjaTrader)
+    nt_folder: "C:/Users/YOU/Documents/NinjaTrader 8"
+    starting_equity: 50000.0
+    # NinjaTrader needs the explicit contract month. Update on roll dates.
+    contracts:
+      MES: "12-26"
+      MNQ: "12-26"
+      MYM: "12-26"
+      M2K: "12-26"
+      CL: "01-27"
+      MCL: "01-27"
+      GC: "02-27"
+      MGC: "02-27"
+
+paper:
+  starting_equity: 50000.0

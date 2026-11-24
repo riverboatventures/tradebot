@@ -1,0 +1,126 @@
+"""The desk: ATLAS -> VEGA -> ORION + LUNA -> NOVA (draft) -> TITAN -> NOVA (final) -> broker."""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+
+from .account import AccountTracker
+from .agents import Atlas, Luna, Nova, Orion, Titan, Vega
+from .brokers import Broker, BrokerError, PaperBroker
+from .config import Settings
+from .data import MarketData, NewsFeed, SentimentFeed
+from .journal import Journal
+from .llm import LLM
+from .models import AccountState
+
+log = logging.getLogger("desk")
+
+KILL_FILE = Path("KILL")
+
+
+@dataclass
+class Desk:
+    broker: Broker
+    tracker: AccountTracker
+    halted: str | None = None
+    last_state: AccountState | None = field(default=None)
+
+
+class Pipeline:
+    def __init__(self, settings: Settings, data: MarketData, news: NewsFeed, sentiment: SentimentFeed,
+                 brokers: list[Broker], journal: Journal | None = None, state_dir: str = "logs"):
+        self.s = settings
+        self.data = data
+        llm = LLM(settings.llm.model, settings.llm.enabled)
+        self.atlas = Atlas(settings, data)
+        self.vega = Vega(settings, data)
+        self.orion = Orion(news, llm)
+        self.luna = Luna(sentiment, llm)
+        self.titan = Titan(settings)
+        self.nova = Nova(settings, llm)
+        self.journal = journal or Journal(state_dir)
+        self.desks = [Desk(b, AccountTracker(f"{b.name}_{'live' if b.live else 'sim'}", state_dir)) for b in brokers]
+
+    def _flatten(self, desk: Desk, why: str) -> None:
+        log.warning("[%s] FLATTEN: %s", desk.broker.name, why)
+        self.journal.write("TITAN", "flatten", {"broker": desk.broker.name, "reason": why})
+        desk.broker.flatten_all()
+
+    def run_once(self, now: datetime) -> None:
+        # Advance paper fills with the latest bar
+        for d in self.desks:
+            if isinstance(d.broker, PaperBroker):
+                for sym in list(d.broker.brackets):
+                    d.broker.on_bar(sym, self.data.bars(sym, self.s.session.bar_minutes, 1)[-1])
+
+        if KILL_FILE.exists():
+            for d in self.desks:
+                if d.halted != "kill switch":
+                    self._flatten(d, "kill switch file present")
+                    d.halted = "kill switch"
+            return
+
+        # Account gates
+        active: list[tuple[Desk, AccountState]] = []
+        for d in self.desks:
+            try:
+                eq, pos = d.broker.snapshot()
+            except BrokerError as e:
+                log.error("[%s] can't read account, skipping this cycle: %s", d.broker.name, e)
+                continue
+            acct = d.tracker.update(eq, pos, now.date())
+            d.last_state = acct
+            if now.time() >= self.s.session.flatten_at:
+                if pos:
+                    self._flatten(d, f"end of day ({self.s.session.flatten_at:%H:%M})")
+                continue
+            if halt := self.titan.trading_halted(acct):
+                if d.halted != halt:
+                    d.halted = halt
+                    self._flatten(d, halt)
+                continue
+            if now.time() < self.s.session.first_entry or now.time() > self.s.session.last_entry:
+                continue
+            active.append((d, acct))
+        if not active:
+            return
+
+        # Analysis (shared across accounts)
+        watchlist = self.atlas.scan()
+        self.journal.write("ATLAS", "watchlist", watchlist)
+        for item in watchlist.items:
+            chart = self.vega.analyze(item.symbol)
+            self.journal.write("VEGA", "analysis", chart)
+            if not chart.setup:
+                continue
+            news = self.orion.analyze(item.symbol, now)
+            self.journal.write("ORION", "news", news)
+            mood = self.luna.analyze(item.symbol)
+            self.journal.write("LUNA", "sentiment", mood)
+            draft = self.nova.draft(item, chart, news, mood)
+            self.journal.write("NOVA", "draft", draft)
+            if not draft:
+                continue
+
+            for d, acct in active:
+                risk = self.titan.review(draft, acct, news, mood, now)
+                self.journal.write("TITAN", "review", risk, broker=d.broker.name)
+                decision = self.nova.decide(risk, chart, news, mood)
+                self.journal.write("NOVA", "decision", decision, broker=d.broker.name)
+                if decision.action != "trade" or not decision.plan:
+                    continue
+                try:
+                    result = d.broker.place_bracket(decision.plan)
+                except BrokerError as e:
+                    log.error("[%s] order failed: %s", d.broker.name, e)
+                    self.journal.write("broker", "error", {"error": str(e)}, broker=d.broker.name)
+                    continue
+                self.journal.write("broker", "order", result, broker=d.broker.name)
+                if result.ok:
+                    d.tracker.record_trade()
+                    # refresh so the next symbol is sized against current positions
+                    eq, pos = d.broker.snapshot()
+                    acct = d.tracker.update(eq, pos, now.date())
+                    active = [(dd, acct if dd is d else aa) for dd, aa in active]
