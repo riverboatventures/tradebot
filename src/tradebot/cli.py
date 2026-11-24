@@ -87,6 +87,12 @@ def _main(argv: list[str] | None = None) -> None:
     sub.add_parser("once", help="run one pipeline cycle and exit")
     sub.add_parser("kill", help="kill switch: flatten everything and block new trades")
     sub.add_parser("resume", help="remove the kill switch")
+    bt = sub.add_parser("backtest", help="replay historical bars through the desk")
+    bt.add_argument("--csv", action="append", default=[], metavar="SYMBOL=PATH",
+                    help="historical 5m bars for a symbol, e.g. --csv MES=data/MES.csv (repeatable)")
+    bt.add_argument("--synthetic-days", type=int, default=0,
+                    help="use N days of random synthetic bars instead (for trying it out)")
+    bt.add_argument("--trades", action="store_true", help="also print every trade")
     cb = sub.add_parser("check-broker", help="connect and print account state")
     cb.add_argument("name", choices=["tradovate", "ninjatrader"])
     a = p.parse_args(argv)
@@ -111,6 +117,24 @@ def _main(argv: list[str] | None = None) -> None:
     if a.cmd == "resume":
         KILL_FILE.unlink(missing_ok=True)
         print("Kill switch OFF.")
+        return
+    if a.cmd == "backtest":
+        from .backtest import load_csv, run_backtest, synthetic_history
+        if a.synthetic_days:
+            bars = synthetic_history(s.universe, a.synthetic_days, s.session.bar_minutes)
+            print("NOTE: synthetic random-walk data. Results say nothing about real markets.\n")
+        elif a.csv:
+            bars = {}
+            for spec in a.csv:
+                sym, _, path = spec.partition("=")
+                bars[sym.upper()] = load_csv(path)
+        else:
+            sys.exit("give --csv SYMBOL=PATH (repeatable) or --synthetic-days N")
+        res = run_backtest(s, bars)
+        print(res.report())
+        if a.trades:
+            for t in res.trades:
+                print(f"  {t['symbol']:4} {t['qty']:+d} @ {t['entry']} -> {t['exit']} ({t['reason']}) ${t['pnl']:,.2f}")
         return
     if a.cmd == "check-broker":
         getattr(s.brokers, a.name).enabled = True

@@ -80,7 +80,7 @@ class Pipeline:
 
         if KILL_FILE.exists():
             for d in self.desks:
-                if d.halted != "kill switch":
+                if d.halted != "kill switch":  # flatten once per kill
                     self._flatten(d, "kill switch file present")
                     d.halted = "kill switch"
             return
@@ -104,6 +104,7 @@ class Pipeline:
                     d.halted = halt
                     self._flatten(d, halt)
                 continue
+            d.halted = None  # limits cleared (e.g. new day): the next halt must flatten again
             if now.time() < self.s.session.first_entry or now.time() > self.s.session.last_entry:
                 continue
             active.append((d, acct))
@@ -146,8 +147,13 @@ class Pipeline:
                     continue
                 self.journal.write("broker", "order", result, broker=d.broker.name)
                 if result.ok:
-                    d.tracker.record_trade()
-                    # refresh so the next symbol is sized against current positions
+                    # refresh so the next symbol is sized against current positions and open risk
                     eq, pos = d.broker.snapshot()
+                    if not any(p.symbol == decision.plan.symbol for p in pos):
+                        # fill not visible yet (e.g. NinjaTrader files lag): count it anyway
+                        from .models import Position
+                        q = decision.plan.quantity * (1 if decision.plan.direction == "long" else -1)
+                        pos = pos + [Position(symbol=decision.plan.symbol, quantity=q, avg_price=decision.plan.entry)]
+                    d.tracker.record_trade(decision.plan.symbol, risk.risk_dollars)
                     acct = d.tracker.update(eq, pos, now.date())
                     active = [(dd, acct if dd is d else aa) for dd, aa in active]

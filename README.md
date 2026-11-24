@@ -70,6 +70,20 @@ files). Setup:
 3. Set `brokers.ninjatrader.nt_folder`, `account`, and contract months (update on roll dates).
 4. `tradebot check-broker ninjatrader`.
 
+## Backtesting
+
+Replays historical bars through the real desk (ATLAS, VEGA, NOVA rules-only, TITAN, paper fills),
+one bar at a time with no look-ahead, and reports win rate, P&L, profit factor, drawdown, worst day,
+and whether the prop account would have breached its trailing drawdown.
+
+```bash
+# Export 5-minute bars from NinjaTrader: Tools > Historical Data > Export (Minute, 5)
+tradebot backtest --csv MES=data/MES.txt --csv MCL=data/MCL.txt --trades
+tradebot backtest --synthetic-days 20     # random data, just to see it work
+```
+
+News and sentiment aren't replayed, so this tests the chart strategy and the risk rules.
+
 ## Data and news
 
 - **Price bars** (`data.source: ninjatrader`): the TradebotBridge AddOn streams 5-minute bars for every
@@ -88,4 +102,6 @@ kill switch, journal, tests.
 Round 2: NinjaTrader market data, Claude web-search news/sentiment/calendar, Apex drawdown rules.
 The bot refuses demo/live on synthetic (fake) prices.
 
-Not yet built: backtester, notifications, reconciliation of NinjaTrader order fills.
+Round 3: backtester; TITAN now counts risk on open positions against the daily and drawdown limits.
+
+Not yet built: Telegram alerts, reconciliation of NinjaTrader order fills, commissions in TITAN's sizing.

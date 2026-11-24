@@ -39,11 +39,15 @@ class AccountTracker:
         st.setdefault("peak_eod", equity)
         st["peak_intraday"] = max(st.get("peak_intraday", equity), equity, equity_high or equity)
         st["last_equity"] = equity
+        open_syms = {p.symbol for p in positions}
+        st["open_risk"] = {k: v for k, v in st.get("open_risk", {}).items() if k in open_syms}
         self._save()
         peak = st["peak_intraday"] if self.trailing_type == "intraday" else st["peak_eod"]
         return AccountState(equity=equity, start_of_day_equity=st["start_of_day_equity"],
-                            peak_equity=peak, trades_today=st["trades_today"], positions=positions)
+                            peak_equity=peak, trades_today=st["trades_today"], positions=positions,
+                            open_risk=sum(st["open_risk"].values()))
 
-    def record_trade(self) -> None:
+    def record_trade(self, symbol: str, risk_dollars: float) -> None:
         self.state["trades_today"] = self.state.get("trades_today", 0) + 1
+        self.state.setdefault("open_risk", {})[symbol] = risk_dollars
         self._save()

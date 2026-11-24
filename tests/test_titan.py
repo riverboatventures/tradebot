@@ -86,3 +86,13 @@ def test_correlated_exposure(settings, midday):
 def test_max_trades_per_day(settings, midday):
     acct = AccountState(equity=50000, start_of_day_equity=50000, peak_equity=50000, trades_today=6)
     assert Titan(settings).review(proposal(), acct, None, None, midday).verdict == RiskVerdict.reject
+
+
+def test_open_risk_reduces_daily_room(settings, midday):
+    # $1,000 daily stop, already down $700 with $250 riding on an open MNQ trade -> $50 left
+    acct = AccountState(equity=49300, start_of_day_equity=50000, peak_equity=50000,
+                        positions=[Position(symbol="MCL", quantity=1, avg_price=70)], open_risk=250)
+    d = Titan(settings).review(proposal(), acct, None, None, midday)  # 1 MES = $26.25
+    assert d.verdict != RiskVerdict.reject and d.risk_dollars <= 50
+    acct.open_risk = 290
+    assert Titan(settings).review(proposal(), acct, None, None, midday).verdict == RiskVerdict.reject

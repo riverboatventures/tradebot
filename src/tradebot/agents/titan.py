@@ -111,10 +111,12 @@ class Titan:
 
         # 6. Position sizing: the smallest of every budget wins
         per_contract = (stop_ticks + SLIPPAGE_TICKS) * inst.tick_value
+        # Risk already riding on open positions comes out of the daily and drawdown room,
+        # so several trades can't each spend the whole remaining limit.
         budgets = {
             "per-trade risk": acct.equity * self.r.risk_per_trade_pct / 100,
-            "daily loss room": self.daily_risk_remaining(acct),
-            "drawdown room": self.drawdown_room(acct),
+            "daily loss room": self.daily_risk_remaining(acct) - acct.open_risk,
+            "drawdown room": self.drawdown_room(acct) - acct.open_risk,
         }
         budget_name, budget = min(budgets.items(), key=lambda kv: kv[1])
         max_qty = int(budget // per_contract)

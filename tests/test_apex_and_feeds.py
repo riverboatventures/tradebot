@@ -122,3 +122,23 @@ def test_web_news_feed_uses_real_urls_and_caches():
 def test_web_sentiment_feed():
     posts = WebSearchSentimentFeed(FakeLLM()).posts("MCL")
     assert posts[0]["source"] == "reddit"
+
+
+def test_backtest_has_no_lookahead_and_runs(settings):
+    from tradebot.backtest import HistoricalMarketData, run_backtest, synthetic_history
+    bars = synthetic_history(["MES", "MCL"], 3)
+    md = HistoricalMarketData(bars, 5)
+    md.now = bars["MES"][200].ts
+    assert all(b.ts <= md.now for b in md.bars("MES", 5, 500))
+    res = run_backtest(settings, bars)
+    assert res.stats["trades"] == len(res.trades)
+    for t in res.trades:
+        assert abs(t["qty"]) <= settings.risk.max_contracts_per_trade
+
+
+def test_load_ninjatrader_export(tmp_path):
+    from tradebot.backtest import load_csv
+    f = tmp_path / "MES.txt"
+    f.write_text("20261124 143000;6000.25;6001;5999.5;6000.75;1234\n")
+    (b,) = load_csv(f)
+    assert b.ts.hour == 14 and b.close == 6000.75 and b.volume == 1234

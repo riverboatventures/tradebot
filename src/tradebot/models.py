@@ -136,6 +136,7 @@ class AccountState(BaseModel):
     open_pnl: float = 0.0
     trades_today: int = 0
     positions: list[Position] = Field(default_factory=list)
+    open_risk: float = 0.0  # $ that open positions can still lose if their stops are hit
 
     @property
     def day_pnl(self) -> float:
