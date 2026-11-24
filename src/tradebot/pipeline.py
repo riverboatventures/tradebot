@@ -10,7 +10,8 @@ from .account import AccountTracker
 from .agents import Atlas, Luna, Nova, Orion, Titan, Vega
 from .brokers import Broker, BrokerError, PaperBroker
 from .config import Settings
-from .data import MarketData, NewsFeed, SentimentFeed
+from .instruments import get as get_instrument
+from .data import DataError, MarketData, NewsFeed, SentimentFeed
 from .journal import Journal
 from .llm import LLM
 from .models import AccountState
@@ -30,10 +31,11 @@ class Desk:
 
 class Pipeline:
     def __init__(self, settings: Settings, data: MarketData, news: NewsFeed, sentiment: SentimentFeed,
-                 brokers: list[Broker], journal: Journal | None = None, state_dir: str = "logs"):
+                 brokers: list[Broker], journal: Journal | None = None, state_dir: str = "logs",
+                 llm: LLM | None = None):
         self.s = settings
         self.data = data
-        llm = LLM(settings.llm.model, settings.llm.enabled)
+        llm = llm or LLM(settings.llm.model, settings.llm.enabled)
         self.atlas = Atlas(settings, data)
         self.vega = Vega(settings, data)
         self.orion = Orion(news, llm)
@@ -41,19 +43,40 @@ class Pipeline:
         self.titan = Titan(settings)
         self.nova = Nova(settings, llm)
         self.journal = journal or Journal(state_dir)
-        self.desks = [Desk(b, AccountTracker(f"{b.name}_{'live' if b.live else 'sim'}", state_dir)) for b in brokers]
+        prop = settings.risk.prop
+        self.desks = [Desk(b, AccountTracker(f"{b.name}_{'live' if b.live else 'sim'}", state_dir,
+                                             trailing_type=prop.trailing_type,
+                                             starting_balance=prop.starting_balance if prop.enabled else None))
+                      for b in brokers]
 
     def _flatten(self, desk: Desk, why: str) -> None:
         log.warning("[%s] FLATTEN: %s", desk.broker.name, why)
         self.journal.write("TITAN", "flatten", {"broker": desk.broker.name, "reason": why})
         desk.broker.flatten_all()
 
+    def _equity_high(self, equity: float, positions) -> float:
+        """Add back the best unrealized gain seen in the latest bar for each open position, so the
+        intraday trailing peak isn't missed between polls (conservative: raises the peak)."""
+        extra = 0.0
+        for pos in positions:
+            try:
+                bar = self.data.bars(pos.symbol, self.s.session.bar_minutes, 1)[-1]
+            except (DataError, IndexError):
+                continue
+            inst = get_instrument(pos.symbol)
+            move = (bar.high - bar.close) if pos.quantity > 0 else (bar.close - bar.low)
+            extra += max(0.0, move) / inst.tick_size * inst.tick_value * abs(pos.quantity)
+        return equity + extra
+
     def run_once(self, now: datetime) -> None:
         # Advance paper fills with the latest bar
         for d in self.desks:
             if isinstance(d.broker, PaperBroker):
                 for sym in list(d.broker.brackets):
-                    d.broker.on_bar(sym, self.data.bars(sym, self.s.session.bar_minutes, 1)[-1])
+                    try:
+                        d.broker.on_bar(sym, self.data.bars(sym, self.s.session.bar_minutes, 1)[-1])
+                    except (DataError, IndexError) as e:
+                        log.warning("paper mark for %s unavailable: %s", sym, e)
 
         if KILL_FILE.exists():
             for d in self.desks:
@@ -70,7 +93,7 @@ class Pipeline:
             except BrokerError as e:
                 log.error("[%s] can't read account, skipping this cycle: %s", d.broker.name, e)
                 continue
-            acct = d.tracker.update(eq, pos, now.date())
+            acct = d.tracker.update(eq, pos, now.date(), self._equity_high(eq, pos))
             d.last_state = acct
             if now.time() >= self.s.session.flatten_at:
                 if pos:
@@ -91,7 +114,11 @@ class Pipeline:
         watchlist = self.atlas.scan()
         self.journal.write("ATLAS", "watchlist", watchlist)
         for item in watchlist.items:
-            chart = self.vega.analyze(item.symbol)
+            try:
+                chart = self.vega.analyze(item.symbol)
+            except DataError as e:
+                log.warning("VEGA skipped %s: %s", item.symbol, e)
+                continue
             self.journal.write("VEGA", "analysis", chart)
             if not chart.setup:
                 continue

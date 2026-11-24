@@ -5,7 +5,7 @@ import logging
 
 from .. import indicators as ind
 from ..config import Settings
-from ..data import MarketData
+from ..data import DataError, MarketData
 from ..instruments import get as get_instrument
 from ..models import ChartAnalysis, Trend
 
@@ -36,6 +36,8 @@ class Vega:
     def analyze(self, symbol: str) -> ChartAnalysis:
         inst = get_instrument(symbol)
         bars = self.data.bars(symbol, self.s.session.bar_minutes, 120)
+        if len(bars) < 40:
+            raise DataError(f"only {len(bars)} bars for {symbol}, need 40+")
         factor = max(1, self.s.session.higher_tf_minutes // self.s.session.bar_minutes)
         htf = ind.resample(bars, factor)
         closes = [b.close for b in bars]

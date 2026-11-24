@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from .brokers import Broker, BrokerError, PaperBroker
 from .config import Settings, load_dotenv, load_settings
+from .llm import LLM
 from .data import StaticNewsFeed, StaticSentimentFeed, SyntheticMarketData
 from .pipeline import KILL_FILE, Pipeline
 
@@ -36,11 +37,30 @@ def build_brokers(s: Settings) -> list[Broker]:
 
 
 def build_pipeline(s: Settings) -> Pipeline:
+    if s.data.source == "synthetic" and s.mode != "paper":
+        sys.exit("data.source is 'synthetic' (fake prices). Set data.source: ninjatrader before demo/live.")
     brokers = build_brokers(s)
     for b in brokers:
         b.connect()
-    # TODO(next step): swap in real market data, news and sentiment feeds.
-    return Pipeline(s, SyntheticMarketData(), StaticNewsFeed(), StaticSentimentFeed(), brokers)
+    llm = LLM(s.llm.model, s.llm.enabled)
+
+    if s.data.source == "ninjatrader":
+        from .data.ninjatrader import NinjaTraderMarketData
+        nt = s.brokers.ninjatrader
+        data = NinjaTraderMarketData(nt.nt_folder, nt.contracts, s.session.bar_minutes)
+        data.subscribe([sym for sym in s.universe if sym in nt.contracts])
+    else:
+        data = SyntheticMarketData()
+
+    if s.news.source == "web_search":
+        if not llm.available:
+            sys.exit("news.source is web_search but Claude isn't available (ANTHROPIC_API_KEY / pip install '.[ai]')")
+        from .data.web import WebSearchNewsFeed, WebSearchSentimentFeed
+        news = WebSearchNewsFeed(llm, s.news.refresh_minutes, s.news.max_searches, s.timezone)
+        sentiment = WebSearchSentimentFeed(llm, s.news.refresh_minutes, s.news.max_searches)
+    else:
+        news, sentiment = StaticNewsFeed(), StaticSentimentFeed()
+    return Pipeline(s, data, news, sentiment, brokers, llm=llm)
 
 
 def warn_about_settings(s: Settings) -> None:
@@ -52,6 +72,13 @@ def warn_about_settings(s: Settings) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    try:
+        _main(argv)
+    except BrokerError as e:
+        sys.exit(f"Broker error: {e}")
+
+
+def _main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="tradebot")
     p.add_argument("--config", default="config/settings.yaml")
     p.add_argument("-v", "--verbose", action="store_true")

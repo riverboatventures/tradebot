@@ -25,7 +25,9 @@ If Claude is unavailable or declines a request, the AI-powered agents fall back 
 
 - 1% of equity max risk per trade (stop distance + 1 tick slippage)
 - Daily loss limit: the **stricter** of 20% and the prop firm's daily limit ($1,000 default)
-- Prop trailing drawdown: stops trading `drawdown_buffer` dollars *before* the firm's line
+- Prop trailing drawdown (Apex-style): intraday trailing on the highest equity including open P&L
+  (or `eod` trailing on end-of-day balances), locking at starting balance + $100. TITAN stops trading
+  `drawdown_buffer` dollars *before* the firm's line
 - Max trades/day, max open positions, no two same-direction positions in correlated markets
 - Minimum reward:risk 1.5, minimum stop distance
 - Entries only 09:35–15:30 ET; **everything flattened at 15:50 ET**
@@ -50,7 +52,7 @@ Peak equity and start-of-day equity are saved to `logs/`, so restarting the bot 
 pip install -e ".[ai,dev]"
 cp .env.example .env           # add ANTHROPIC_API_KEY (optional) and broker credentials
 pytest                         # TITAN + system tests
-tradebot once                  # one paper cycle on synthetic data
+tradebot once                  # one paper cycle (synthetic prices unless data.source: ninjatrader)
 tradebot run                   # continuous loop
 ```
 
@@ -68,10 +70,22 @@ files). Setup:
 3. Set `brokers.ninjatrader.nt_folder`, `account`, and contract months (update on roll dates).
 4. `tradebot check-broker ninjatrader`.
 
+## Data and news
+
+- **Price bars** (`data.source: ninjatrader`): the TradebotBridge AddOn streams 5-minute bars for every
+  contract in `brokers.ninjatrader.contracts`. NinjaTrader must be running and connected to a data feed,
+  **even when you trade through Tradovate**. Bars stale for 2+ minutes are ignored, so the bot doesn't trade blind.
+- **News, calendar and sentiment** (`news.source: web_search`): ORION and LUNA use Claude's web search.
+  ORION verifies sources against the URLs the search actually returned, not URLs Claude writes. The economic
+  calendar is fetched once per day and drives the news blackout. Results are cached for `refresh_minutes`
+  per market group (index, energy, metals) to keep costs down.
+
 ## Status
 
 Built: all six agents, pipeline, TITAN + prop rules, paper broker, Tradovate and NinjaTrader connectors,
 kill switch, journal, tests.
 
-Not yet built: real market-data feed (currently synthetic bars), real news/sentiment feeds,
-economic calendar, backtester, notifications. **Don't run demo or live until the market data feed is real.**
+Round 2: NinjaTrader market data, Claude web-search news/sentiment/calendar, Apex drawdown rules.
+The bot refuses demo/live on synthetic (fake) prices.
+
+Not yet built: backtester, notifications, reconciliation of NinjaTrader order fills.

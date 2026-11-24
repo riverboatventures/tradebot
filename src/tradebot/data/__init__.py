@@ -13,6 +13,10 @@ from ..instruments import get as get_instrument
 from ..models import Bar
 
 
+class DataError(RuntimeError):
+    """Data missing or stale. Agents skip the symbol instead of guessing."""
+
+
 class MarketData(ABC):
     @abstractmethod
     def bars(self, symbol: str, minutes: int, count: int) -> list[Bar]:

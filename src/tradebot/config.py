@@ -35,7 +35,14 @@ class AtlasCfg(BaseModel):
 
 class PropCfg(BaseModel):
     enabled: bool = False
+    firm: str = ""
+    starting_balance: float | None = None   # the account's original balance
     trailing_drawdown: float | None = None
+    # intraday: line trails the highest equity incl. unrealized P&L (Apex-style)
+    # eod:      line trails the highest end-of-day balance
+    trailing_type: Literal["intraday", "eod"] = "intraday"
+    # Line stops trailing once it reaches starting_balance + this (Apex: +$100). null = never locks.
+    trail_lock_offset: float | None = None
     daily_loss_limit: float | None = None
     max_contracts: int | None = None
     drawdown_buffer: float = 0.0
@@ -81,6 +88,16 @@ class BrokersCfg(BaseModel):
     ninjatrader: NinjaTraderCfg = Field(default_factory=NinjaTraderCfg)
 
 
+class DataCfg(BaseModel):
+    source: Literal["synthetic", "ninjatrader"] = "synthetic"
+
+
+class NewsCfg(BaseModel):
+    source: Literal["none", "web_search"] = "none"
+    refresh_minutes: int = 15
+    max_searches: int = 3
+
+
 class PaperCfg(BaseModel):
     starting_equity: float = 50000.0
 
@@ -96,6 +113,8 @@ class Settings(BaseModel):
     llm: LlmCfg = Field(default_factory=LlmCfg)
     brokers: BrokersCfg = Field(default_factory=BrokersCfg)
     paper: PaperCfg = Field(default_factory=PaperCfg)
+    data: DataCfg = Field(default_factory=DataCfg)
+    news: NewsCfg = Field(default_factory=NewsCfg)
 
     @property
     def live_armed(self) -> bool:

@@ -40,8 +40,15 @@ class Titan:
         p = self.r.prop
         if not (p.enabled and p.trailing_drawdown):
             return math.inf
+        return acct.equity - self.drawdown_floor(acct) - p.drawdown_buffer
+
+    def drawdown_floor(self, acct: AccountState) -> float:
+        """The equity level at which the prop firm fails the account."""
+        p = self.r.prop
         floor = acct.peak_equity - p.trailing_drawdown
-        return acct.equity - floor - p.drawdown_buffer
+        if p.trail_lock_offset is not None and p.starting_balance:
+            floor = min(floor, p.starting_balance + p.trail_lock_offset)
+        return floor
 
     def trading_halted(self, acct: AccountState) -> str | None:
         if self.daily_risk_remaining(acct) <= 0:

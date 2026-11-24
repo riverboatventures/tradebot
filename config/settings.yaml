@@ -40,12 +40,26 @@ risk:                       # TITAN's hard limits. AI agents cannot override the
   hype_risk_size_cut: 0.5   # LUNA reports high hype risk -> size multiplied by this
 
   # Prop / funded account rules. TITAN always applies the STRICTER of these and the limits above.
+  # Defaults below are an Apex 50k-style account. CHECK THEM AGAINST YOUR APEX DASHBOARD:
+  # firm rules change, and TITAN can only protect the numbers you give it.
   prop:
     enabled: true
+    firm: apex
+    starting_balance: 50000.0
     trailing_drawdown: 2500.0      # $ below peak equity at which the account fails
-    daily_loss_limit: 1000.0       # $ firm daily loss limit (null to disable)
-    max_contracts: 10              # firm's contract limit (micros count as 1 each here)
-    drawdown_buffer: 250.0         # TITAN stops trading this many $ BEFORE the firm's limit
+    trailing_type: intraday        # intraday = trails highest equity incl. open P&L; eod = end-of-day balance
+    trail_lock_offset: 100.0       # drawdown line stops trailing at starting_balance + $100
+    daily_loss_limit: 1000.0       # TITAN's own daily stop in $ (stricter than 20% of the account)
+    max_contracts: 10              # contract cap (each micro counts as 1 here, which is conservative)
+    drawdown_buffer: 250.0         # TITAN stops trading this many $ BEFORE the firm's line
+
+data:
+  source: synthetic         # synthetic = fake prices (paper only) | ninjatrader = live bars via TradebotBridge
+
+news:                       # ORION (news + economic calendar) and LUNA (sentiment)
+  source: none              # none | web_search (Claude searches the web; needs ANTHROPIC_API_KEY)
+  refresh_minutes: 15       # re-search at most this often per market group (cost control)
+  max_searches: 3           # web searches per lookup
 
 nova:
   min_confidence: 0.6       # NOVA rejects setups below this blended confidence

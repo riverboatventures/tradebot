@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from .. import indicators as ind
 from ..config import Settings
-from ..data import MarketData
+from ..data import DataError, MarketData
 from ..instruments import get as get_instrument
 from ..models import Watchlist, WatchlistItem
 
@@ -27,7 +27,11 @@ class Atlas:
             inst = get_instrument(sym)
             if not inst.micro and not self.s.risk.allow_full_size:
                 continue  # TITAN would reject it anyway; don't waste analysis on it
-            bars = self.data.bars(sym, self.s.session.bar_minutes, 60)
+            try:
+                bars = self.data.bars(sym, self.s.session.bar_minutes, 60)
+            except DataError as e:
+                log.warning("%s skipped: %s", sym, e)
+                continue
             if len(bars) < 30:
                 log.warning("%s: not enough bars (%d)", sym, len(bars))
                 continue
