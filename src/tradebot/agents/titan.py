@@ -45,6 +45,8 @@ class Titan:
     def drawdown_floor(self, acct: AccountState) -> float:
         """The equity level at which the prop firm fails the account."""
         p = self.r.prop
+        if p.trailing_type == "static" and p.starting_balance:
+            return p.starting_balance - p.trailing_drawdown
         floor = acct.peak_equity - p.trailing_drawdown
         if p.trail_lock_offset is not None and p.starting_balance:
             floor = min(floor, p.starting_balance + p.trail_lock_offset)

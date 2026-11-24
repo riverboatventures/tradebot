@@ -177,3 +177,18 @@ def test_apex_2000_drawdown_floor(apex50):
     t = Titan(apex50)
     assert t.drawdown_floor(AccountState(equity=50000, start_of_day_equity=50000, peak_equity=50000)) == 48000
     assert t.drawdown_floor(AccountState(equity=52500, start_of_day_equity=52500, peak_equity=52500)) == 50100
+
+
+def test_tradeify_static_drawdown(settings, midday):
+    p = settings.risk.prop
+    p.trailing_type, p.starting_balance, p.trailing_drawdown, p.drawdown_buffer = "static", 10000, 500, 100
+    p.daily_loss_limit, p.max_contracts, p.micro_weight = 250, 10, 1.0
+    t = Titan(settings)
+    # floor never moves, no matter how high equity went
+    assert t.drawdown_floor(AccountState(equity=10800, start_of_day_equity=10800, peak_equity=10900)) == 9500
+    # $9,650 equity -> $50 of room left before TITAN's $9,600 stop
+    acct = AccountState(equity=9650, start_of_day_equity=9650, peak_equity=10000)
+    d = t.review(proposal(), acct, None, None, midday)  # 1 MES = $26.25
+    assert d.proposal.quantity == 1
+    acct.equity = 9600
+    assert "drawdown" in t.trading_halted(acct)

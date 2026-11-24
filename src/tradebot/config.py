@@ -40,7 +40,8 @@ class PropCfg(BaseModel):
     trailing_drawdown: float | None = None
     # intraday: line trails the highest equity incl. unrealized P&L (Apex-style)
     # eod:      line trails the highest end-of-day balance
-    trailing_type: Literal["intraday", "eod"] = "intraday"
+    # static:   line is fixed at starting_balance - trailing_drawdown and never moves (Tradeify static)
+    trailing_type: Literal["intraday", "eod", "static"] = "intraday"
     # Line stops trailing once it reaches starting_balance + this (Apex: +$100). null = never locks.
     trail_lock_offset: float | None = None
     daily_loss_limit: float | None = None
