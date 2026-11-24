@@ -57,7 +57,7 @@ risk:                       # TITAN's hard limits. AI agents cannot override the
     drawdown_buffer: 100.0         # TITAN stops opening trades at $9,600
 
 data:
-  source: synthetic         # synthetic = fake prices (paper only) | ninjatrader = live bars via TradebotBridge
+  source: synthetic         # switch to ninjatrader once the AddOn runs. synthetic = fake prices (paper only) | ninjatrader = live bars via TradebotBridge
 
 news:                       # ORION (news + economic calendar) and LUNA (sentiment)
   source: none              # none | web_search (Claude searches the web; needs ANTHROPIC_API_KEY)
@@ -72,12 +72,17 @@ llm:
   enabled: true             # false = ORION/LUNA/NOVA run rules-only (no API calls)
 
 brokers:
+  # Tradeify (prop) accounts can't get Tradovate API keys, so the bot reaches them through
+  # NinjaTrader 8 logged in to the Tradeify Tradovate account (ninjatrader below).
+  # The direct Tradovate connector is for personal Tradovate brokerage accounts only.
   tradovate:
     enabled: false
     account_spec: ""        # Tradovate account name, e.g. "DEMO123456"
   ninjatrader:
-    enabled: false
-    account: Sim101         # NinjaTrader account name (Sim101 for sim, your live account name for live)
+    enabled: true
+    # NinjaTrader account name: Sim101 for practice; for Tradeify, the account name exactly as it
+    # appears in NinjaTrader's Accounts tab after connecting to Tradovate.
+    account: Sim101
     # Folder NinjaTrader watches for order instruction files (ATI must be enabled in NinjaTrader)
     nt_folder: "C:/Users/YOU/Documents/NinjaTrader 8"
     starting_equity: 50000.0
