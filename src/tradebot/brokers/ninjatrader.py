@@ -4,7 +4,7 @@ How it works:
   * Orders: tradebot writes Order Instruction Files (OIF) into
     <NinjaTrader 8>/incoming/. NinjaTrader picks them up and places the orders.
   * Positions: NinjaTrader writes <instrument> <account>_position.txt into outgoing/.
-  * Account balance: the TradebotBridge AddOn (ninjatrader/TradebotBridge.cs)
+  * Account balance: the TradebotBridge indicator (ninjatrader/TradebotBridge.cs)
     writes outgoing/tradebot_account_<account>.json every second. Without it TITAN
     can't see the balance, so this connector refuses to trade (fail closed).
 
@@ -52,7 +52,7 @@ class NinjaTraderBroker(Broker):
         if not self.incoming.is_dir():
             raise BrokerError(f"NinjaTrader incoming folder not found: {self.incoming}. "
                               "Is NinjaTrader installed and ATI enabled?")
-        self.snapshot()  # verifies the bridge AddOn is running
+        self.snapshot()  # verifies the bridge indicator is running
         log.info("Connected to NinjaTrader account %s%s", self.account, " (LIVE)" if self.live else "")
 
     def _write_oif(self, lines: list[str]) -> None:

@@ -1,7 +1,7 @@
-"""Market data from NinjaTrader via the TradebotBridge AddOn.
+"""Market data from NinjaTrader via the TradebotBridge indicator (on one open chart).
 
 tradebot writes the list of contracts it wants to <NT folder>/tradebot/symbols.txt.
-The AddOn subscribes to each one and keeps outgoing/tradebot_bars_<instrument>_<minutes>.csv
+The indicator keeps outgoing/tradebot_bars_<instrument>_<minutes>.csv
 updated (UTC close time, open, high, low, close, volume).
 """
 from __future__ import annotations
