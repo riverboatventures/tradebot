@@ -45,7 +45,7 @@ class NinjaTraderMarketData(MarketData):
         name = self.instrument(symbol).replace(" ", "_")
         f = self.root / "outgoing" / f"tradebot_bars_{name}_{minutes}.csv"
         if not f.exists():
-            raise DataError(f"{f.name} missing. Is the TradebotBridge AddOn running?")
+            raise DataError(f"{f.name} missing. Is the TradebotBridge indicator on an open chart?")
         if time.time() - f.stat().st_mtime > STALE_AFTER_S:
             raise DataError(f"{f.name} not updated for >{STALE_AFTER_S}s (market closed or NinjaTrader disconnected)")
         now = datetime.now(timezone.utc)

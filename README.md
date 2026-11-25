@@ -71,8 +71,10 @@ Test with `tradebot check-broker tradovate`.
 **NinjaTrader 8** (`brokers/ninjatrader.py`): uses the Automated Trading Interface (order instruction
 files). Setup:
 1. NinjaTrader → Tools → Options → Automated trading interface → enable **AT Interface**.
-2. Copy `ninjatrader/TradebotBridge.cs` to `Documents\NinjaTrader 8\bin\Custom\AddOns\`, open the
-   NinjaScript Editor, and press F5. It publishes account balances for TITAN.
+2. Install `ninjatrader/TradebotBridge.cs` as an **indicator**: NinjaScript Editor → right-click
+   Indicators → New Indicator → name it TradebotBridge → Generate → replace the code with this file →
+   Ctrl+S. Add it to one 5 Minute chart (e.g. MES); keep that chart open. It publishes account
+   balances and bars for every instrument in its "Other instruments" setting.
 3. Set `brokers.ninjatrader.nt_folder`, the `accounts` list (Sim101 and/or your live account, each
    marked `live: true/false`), and contract months (update on roll dates).
    `mode: demo` trades only non-live accounts; `mode: live` trades all of them (needs `TRADEBOT_LIVE_ARMED`).
@@ -94,7 +96,7 @@ News and sentiment aren't replayed, so this tests the chart strategy and the ris
 
 ## Data and news
 
-- **Price bars** (`data.source: ninjatrader`): the TradebotBridge AddOn streams 5-minute bars for every
+- **Price bars** (`data.source: ninjatrader`): the TradebotBridge indicator (on one open 5 Minute chart) streams 5-minute bars for every
   contract in `brokers.ninjatrader.contracts`. NinjaTrader must be running and connected to a data feed,
   **even when you trade through Tradovate**. Bars stale for 2+ minutes are ignored, so the bot doesn't trade blind.
 - **News, calendar and sentiment** (`news.source: web_search`): ORION and LUNA use Claude's web search.

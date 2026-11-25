@@ -1,38 +1,40 @@
-// TradebotBridge: NinjaTrader 8 AddOn that feeds tradebot.
+// TradebotBridge: NinjaTrader 8 INDICATOR that feeds tradebot.
 //
-//  1. Account balances: every second writes outgoing\tradebot_account_<Account>.json
-//     for each connected account. tradebot refuses to trade if it's missing or stale.
-//  2. Price bars: reads tradebot\symbols.txt (written by tradebot, lines like "MES 12-26|5"),
-//     subscribes to each instrument, and keeps outgoing\tradebot_bars_<Instrument>_<min>.csv
-//     updated with the last 300 bars (bar CLOSE time in UTC).
+// Put it on ONE chart (e.g. MES 12-26, 5 Minute). While that chart is open it:
+//  1. writes outgoing\tradebot_account_<Account>.json every second for each connected account
+//     (tradebot refuses to trade if this file is missing or stale), and
+//  2. writes outgoing\tradebot_bars_<Instrument>_<min>.csv with the last 300 bars for the chart's
+//     instrument plus every instrument listed in "Other instruments" (bar CLOSE time, UTC).
 //
-// Install: copy this file to Documents\NinjaTrader 8\bin\Custom\AddOns\,
-// open the NinjaScript Editor and press F5 to compile. Needs a connected data feed.
+// Install: NinjaScript Editor > right-click Indicators > New Indicator > name it TradebotBridge >
+// Generate > replace all the code with this file > Ctrl+S. Then add it to a 5 Minute chart.
 #region Using declarations
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
-using System.Windows;
 using NinjaTrader.Cbi;
 using NinjaTrader.Core;
 using NinjaTrader.Data;
+using NinjaTrader.NinjaScript;
 #endregion
 
-namespace NinjaTrader.NinjaScript.AddOns
+namespace NinjaTrader.NinjaScript.Indicators
 {
-    public class TradebotBridge : AddOnBase
+    public class TradebotBridge : Indicator
     {
         private const int BarsToKeep = 300;
-        private Timer timer;
-        private bool loggedAccounts;
-        private readonly object sync = new object();
-        private readonly Dictionary<string, BarsRequest> requests = new Dictionary<string, BarsRequest>();
-        private readonly Dictionary<string, DateTime> lastWrite = new Dictionary<string, DateTime>();
-        private int tick;
+        private Timer accountTimer;
+        private readonly Dictionary<int, DateTime> lastWrite = new Dictionary<int, DateTime>();
+        private static bool loggedAccounts;
+
+        [Display(Name = "Other instruments", Description = "Comma-separated, with contract month",
+                 GroupName = "Parameters", Order = 1)]
+        public string OtherInstruments { get; set; }
 
         protected override void OnStateChange()
         {
@@ -40,40 +42,49 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 Name = "TradebotBridge";
                 Description = "Publishes account balances and price bars for tradebot.";
-                // Diagnostic: proves NinjaTrader compiled and loaded this add-on.
-                try { AtomicWrite(Path.Combine(OutDir, "tradebot_bridge_loaded.txt"), DateTime.UtcNow.ToString("o")); }
-                catch (Exception) { }
+                Calculate = Calculate.OnPriceChange;
+                IsOverlay = true;
+                DisplayInDataBox = false;
+                PaintPriceMarkers = false;
+                IsSuspendedWhileInactive = false;  // keep working when the chart is hidden
+                OtherInstruments = "MNQ 12-26, MYM 12-26, M2K 12-26, MCL 01-27, MGC 02-27";
             }
-            else if (State == State.Configure || State == State.Active)
+            else if (State == State.Configure)
             {
-                StartOnce();
+                string own = Instrument != null ? Instrument.FullName : "";
+                foreach (string raw in (OtherInstruments ?? "").Split(','))
+                {
+                    string name = raw.Trim();
+                    if (name.Length > 0 && name != own)
+                        AddDataSeries(name, BarsPeriodType.Minute, BarsPeriod.Value);
+                }
+            }
+            else if (State == State.DataLoaded)
+            {
+                accountTimer = new Timer(_ => PublishAccounts(), null, 0, 1000);
+                Print("TradebotBridge: started. Writing files to " + OutDir);
             }
             else if (State == State.Terminated)
             {
-                if (timer != null) timer.Dispose();
-                lock (sync)
+                if (accountTimer != null)
                 {
-                    foreach (BarsRequest br in requests.Values) br.Dispose();
-                    requests.Clear();
+                    accountTimer.Dispose();
+                    accountTimer = null;
                 }
             }
         }
 
-        // NinjaTrader calls this for every window it opens, including the Control Center at startup.
-        // This is the most reliable place for an add-on to start its work.
-        protected override void OnWindowCreated(Window window)
+        protected override void OnBarUpdate()
         {
-            StartOnce();
-        }
-
-        private void StartOnce()
-        {
-            lock (sync)
-            {
-                if (timer != null) return;
-                timer = new Timer(_ => OnTimer(), null, 0, 1000);
-            }
-            Log("started. Writing files to " + OutDir);
+            int b = BarsInProgress;
+            // While loading history, only write once we reach the most recent bars.
+            if (State == State.Historical && CurrentBars[b] < BarsArray[b].Count - 2)
+                return;
+            DateTime last;
+            if (lastWrite.TryGetValue(b, out last) && (DateTime.UtcNow - last).TotalSeconds < 1)
+                return;  // updates arrive on every price change; write at most once per second
+            lastWrite[b] = DateTime.UtcNow;
+            WriteBars(BarsArray[b]);
         }
 
         private static string OutDir
@@ -90,8 +101,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             string tmp = path + ".tmp";
             File.WriteAllText(tmp, content);
-            if (File.Exists(path)) File.Delete(path);
-            File.Move(tmp, path);
+            if (File.Exists(path)) File.Replace(tmp, path, null);
+            else File.Move(tmp, path);
         }
 
         private static void Log(string msg)
@@ -99,93 +110,43 @@ namespace NinjaTrader.NinjaScript.AddOns
             NinjaTrader.Code.Output.Process("TradebotBridge: " + msg, PrintTo.OutputTab1);
         }
 
-        private void OnTimer()
-        {
-            try { AtomicWrite(Path.Combine(OutDir, "tradebot_bridge_heartbeat.txt"), DateTime.UtcNow.ToString("o")); }
-            catch (Exception e) { Log("heartbeat: " + e.Message); }
-            try { PublishAccounts(); } catch (Exception e) { Log("accounts: " + e.Message); }
-            if (tick++ % 10 == 0)
-            {
-                try { SyncSubscriptions(); } catch (Exception e) { Log("subscriptions: " + e.Message); }
-            }
-        }
-
-        private void PublishAccounts()
-        {
-            Account[] accounts;
-            lock (Account.All) accounts = Account.All.ToArray();
-            if (!loggedAccounts)
-            {
-                loggedAccounts = true;
-                Log("accounts found: " + (accounts.Length == 0 ? "none" :
-                    string.Join(", ", accounts.Select(x => x.Name + " (" + x.ConnectionStatus + ")"))));
-            }
-            foreach (Account a in accounts)
-            {
-                if (a.ConnectionStatus != ConnectionStatus.Connected) continue;
-                string json = string.Format(CultureInfo.InvariantCulture,
-                    "{{\"Account\":\"{0}\",\"NetLiquidation\":{1},\"CashValue\":{2},\"RealizedProfitLoss\":{3},\"UnrealizedProfitLoss\":{4},\"Timestamp\":\"{5:o}\"}}",
-                    a.Name,
-                    a.Get(AccountItem.NetLiquidation, Currency.UsDollar),
-                    a.Get(AccountItem.CashValue, Currency.UsDollar),
-                    a.Get(AccountItem.RealizedProfitLoss, Currency.UsDollar),
-                    a.Get(AccountItem.UnrealizedProfitLoss, Currency.UsDollar),
-                    DateTime.UtcNow);
-                AtomicWrite(Path.Combine(OutDir, "tradebot_account_" + a.Name + ".json"), json);
-            }
-        }
-
-        private void SyncSubscriptions()
-        {
-            string cfg = Path.Combine(Globals.UserDataDir, "tradebot", "symbols.txt");
-            if (!File.Exists(cfg)) return;
-            foreach (string raw in File.ReadAllLines(cfg))
-            {
-                string key = raw.Trim();
-                if (key.Length == 0) continue;
-                lock (sync) { if (requests.ContainsKey(key)) continue; }
-
-                string[] parts = key.Split('|');
-                int minutes;
-                if (parts.Length != 2 || !int.TryParse(parts[1], out minutes))
-                {
-                    Log("bad line in symbols.txt: " + key);
-                    continue;
-                }
-                Instrument instrument = Instrument.GetInstrument(parts[0]);
-                if (instrument == null)
-                {
-                    Log("unknown instrument: " + parts[0]);
-                    continue;
-                }
-
-                BarsRequest br = new BarsRequest(instrument, BarsToKeep);
-                br.BarsPeriod = new BarsPeriod { BarsPeriodType = BarsPeriodType.Minute, Value = minutes };
-                br.TradingHours = instrument.MasterInstrument.TradingHours;
-                string fileName = "tradebot_bars_" + parts[0].Replace(' ', '_') + "_" + minutes + ".csv";
-                br.Update += (sender, e) => WriteBars(fileName, (BarsRequest)sender, false);
-                br.Request((req, error, message) =>
-                {
-                    if (error != ErrorCode.NoError) Log(key + " request failed: " + message);
-                    else WriteBars(fileName, req, true);
-                });
-                lock (sync) requests[key] = br;
-                Log("subscribed " + key);
-            }
-        }
-
-        private void WriteBars(string fileName, BarsRequest req, bool force)
+        private static void PublishAccounts()
         {
             try
             {
-                lock (sync)
+                Account[] accounts;
+                lock (Account.All) accounts = Account.All.ToArray();
+                if (!loggedAccounts)
                 {
-                    DateTime last;
-                    if (!force && lastWrite.TryGetValue(fileName, out last) && (DateTime.UtcNow - last).TotalSeconds < 1)
-                        return;  // Update fires on every tick; write at most once per second
-                    lastWrite[fileName] = DateTime.UtcNow;
+                    loggedAccounts = true;
+                    Log("accounts: " + string.Join(", ", accounts.Select(x => x.Name + " (" + x.ConnectionStatus + ")")));
                 }
-                Bars bars = req.Bars;
+                foreach (Account a in accounts)
+                {
+                    if (a.ConnectionStatus != ConnectionStatus.Connected) continue;
+                    string json = string.Format(CultureInfo.InvariantCulture,
+                        "{{\"Account\":\"{0}\",\"NetLiquidation\":{1},\"CashValue\":{2},\"RealizedProfitLoss\":{3},\"UnrealizedProfitLoss\":{4},\"Timestamp\":\"{5:o}\"}}",
+                        a.Name,
+                        a.Get(AccountItem.NetLiquidation, Currency.UsDollar),
+                        a.Get(AccountItem.CashValue, Currency.UsDollar),
+                        a.Get(AccountItem.RealizedProfitLoss, Currency.UsDollar),
+                        a.Get(AccountItem.UnrealizedProfitLoss, Currency.UsDollar),
+                        DateTime.UtcNow);
+                    AtomicWrite(Path.Combine(OutDir, "tradebot_account_" + a.Name + ".json"), json);
+                }
+            }
+            catch (Exception e)
+            {
+                Log("accounts: " + e.Message);
+            }
+        }
+
+        private static void WriteBars(Bars bars)
+        {
+            try
+            {
+                string fileName = "tradebot_bars_" + bars.Instrument.FullName.Replace(' ', '_') + "_"
+                                  + bars.BarsPeriod.Value + ".csv";
                 int n = bars.Count;
                 StringBuilder sb = new StringBuilder("time_utc,open,high,low,close,volume\n");
                 for (int i = Math.Max(0, n - BarsToKeep); i < n; i++)
@@ -200,7 +161,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             catch (Exception e)
             {
-                Log("write " + fileName + ": " + e.Message);
+                Log("bars: " + e.Message);
             }
         }
     }

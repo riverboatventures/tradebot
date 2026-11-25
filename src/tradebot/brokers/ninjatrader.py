@@ -64,7 +64,7 @@ class NinjaTraderBroker(Broker):
     def snapshot(self) -> tuple[float, list[Position]]:
         f = self.outgoing / f"tradebot_account_{self.account}.json"
         if not f.exists():
-            raise BrokerError(f"{f.name} missing. Install and enable the TradebotBridge AddOn in NinjaTrader.")
+            raise BrokerError(f"{f.name} missing. Add the TradebotBridge indicator to a 5 Minute chart in NinjaTrader.")
         if time.time() - f.stat().st_mtime > STALE_AFTER_S:
             raise BrokerError(f"{f.name} is stale (>{STALE_AFTER_S}s). Is NinjaTrader running and connected?")
         data = json.loads(f.read_text())
