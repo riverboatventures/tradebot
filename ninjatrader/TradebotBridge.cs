@@ -27,6 +27,7 @@ namespace NinjaTrader.NinjaScript.AddOns
     {
         private const int BarsToKeep = 300;
         private Timer timer;
+        private bool loggedAccounts;
         private readonly object sync = new object();
         private readonly Dictionary<string, BarsRequest> requests = new Dictionary<string, BarsRequest>();
         private readonly Dictionary<string, DateTime> lastWrite = new Dictionary<string, DateTime>();
@@ -39,9 +40,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                 Name = "TradebotBridge";
                 Description = "Publishes account balances and price bars for tradebot.";
             }
-            else if (State == State.Active)
+            else if (State == State.Configure || State == State.Active)
             {
-                timer = new Timer(_ => OnTimer(), null, 0, 1000);
+                // Start once, whichever state NinjaTrader reaches first.
+                if (timer == null)
+                {
+                    timer = new Timer(_ => OnTimer(), null, 0, 1000);
+                    Log("started. Writing files to " + OutDir);
+                }
             }
             else if (State == State.Terminated)
             {
@@ -79,6 +85,8 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void OnTimer()
         {
+            try { AtomicWrite(Path.Combine(OutDir, "tradebot_bridge_heartbeat.txt"), DateTime.UtcNow.ToString("o")); }
+            catch (Exception e) { Log("heartbeat: " + e.Message); }
             try { PublishAccounts(); } catch (Exception e) { Log("accounts: " + e.Message); }
             if (tick++ % 10 == 0)
             {
@@ -90,6 +98,12 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             Account[] accounts;
             lock (Account.All) accounts = Account.All.ToArray();
+            if (!loggedAccounts)
+            {
+                loggedAccounts = true;
+                Log("accounts found: " + (accounts.Length == 0 ? "none" :
+                    string.Join(", ", accounts.Select(x => x.Name + " (" + x.ConnectionStatus + ")"))));
+            }
             foreach (Account a in accounts)
             {
                 if (a.ConnectionStatus != ConnectionStatus.Connected) continue;
