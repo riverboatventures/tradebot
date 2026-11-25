@@ -16,6 +16,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Windows;
 using NinjaTrader.Cbi;
 using NinjaTrader.Core;
 using NinjaTrader.Data;
@@ -39,15 +40,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 Name = "TradebotBridge";
                 Description = "Publishes account balances and price bars for tradebot.";
+                // Diagnostic: proves NinjaTrader compiled and loaded this add-on.
+                try { AtomicWrite(Path.Combine(OutDir, "tradebot_bridge_loaded.txt"), DateTime.UtcNow.ToString("o")); }
+                catch (Exception) { }
             }
             else if (State == State.Configure || State == State.Active)
             {
-                // Start once, whichever state NinjaTrader reaches first.
-                if (timer == null)
-                {
-                    timer = new Timer(_ => OnTimer(), null, 0, 1000);
-                    Log("started. Writing files to " + OutDir);
-                }
+                StartOnce();
             }
             else if (State == State.Terminated)
             {
@@ -58,6 +57,23 @@ namespace NinjaTrader.NinjaScript.AddOns
                     requests.Clear();
                 }
             }
+        }
+
+        // NinjaTrader calls this for every window it opens, including the Control Center at startup.
+        // This is the most reliable place for an add-on to start its work.
+        protected override void OnWindowCreated(Window window)
+        {
+            StartOnce();
+        }
+
+        private void StartOnce()
+        {
+            lock (sync)
+            {
+                if (timer != null) return;
+                timer = new Timer(_ => OnTimer(), null, 0, 1000);
+            }
+            Log("started. Writing files to " + OutDir);
         }
 
         private static string OutDir
